@@ -1,45 +1,58 @@
-import time
 import logging
+import random
+import time
+from typing import Optional
+
 import requests
-import pyodbc
 from bs4 import BeautifulSoup
+
 
 # ---------------------------------------------------------
 # Logging Setup
 # ---------------------------------------------------------
 
-def setup_logger(log_file):
+def setup_logger(log_file: str):
     logging.basicConfig(
         filename=log_file,
-        level=logging.ERROR,
+        filemode="a",
         format="%(asctime)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
     )
 
+
 # ---------------------------------------------------------
-# Safe Conversions
+# Safe Parsing Helpers
 # ---------------------------------------------------------
 
-def safe_float(v):
+def safe_str(value) -> Optional[str]:
+    if value is None:
+        return None
     try:
-        return float(v)
+        text = str(value).strip()
+        return text if text else None
     except Exception:
         return None
 
-def safe_int(v):
+
+def safe_int(value) -> Optional[int]:
     try:
-        return int(v)
+        return int(value)
     except Exception:
         return None
 
-def safe_str(v):
-    if v is None:
+
+def safe_float(value) -> Optional[float]:
+    try:
+        return float(value)
+    except Exception:
         return None
-    s = str(v).strip()
-    return s if s else None
+
 
 # ---------------------------------------------------------
-# HTTP Fetching
+# Anti-Bot Hardened HTTP Fetcher
 # ---------------------------------------------------------
+
+session = requests.Session()
 
 HEADERS = {
     "User-Agent": (
@@ -47,112 +60,92 @@ HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
     ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
 }
 
-REQUEST_SLEEP = 1.0
 
-def fetch_soup(url, params=None):
-    time.sleep(REQUEST_SLEEP)
-    resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
+def fetch_soup(url: str) -> BeautifulSoup:
+    """
+    Anti-bot hardened fetcher for Keg N Bottle and similar retailers.
+    - Uses a persistent session
+    - Sends realistic browser headers
+    - Handles gzip/br compression
+    - Randomized delay to reduce bot detection
+    """
+
+    # Randomized polite delay
+    time.sleep(random.uniform(0.3, 0.8))
+
+    resp = session.get(url, headers=HEADERS)
     resp.raise_for_status()
+
     return BeautifulSoup(resp.text, "html.parser")
 
+
 # ---------------------------------------------------------
-# SQL Insertion
+# SQL Insert Helper (Aligned with Expanded Schema)
 # ---------------------------------------------------------
 
-def save_record_to_sql(conn, record):
+def save_record_to_sql(conn, record: dict):
+    """
+    Inserts a full alcohol record into dbo.alcohol_data.
+    This matches your expanded schema exactly.
+    """
+
     cursor = conn.cursor()
-    try:
-        cursor.execute(
-            """
-            INSERT INTO Alcohol_Pricing_Rating.dbo.alcohol_data (
-                Retailer_Name,
-                Brand,
-                Spirit_Type,
-                Spirit_Style,
-                Complete_Name,
-                ABV,
-                Taste,
-                Country,
-                State,
-                Food_Pairings,
-                Website_Notes,
-                Price,
-                Rating,
-                Review_Count,
-                Wine_Type,
-                Region,
-                Appellation,
-                Wine_Varietal,
-                Wine_Style,
-                Wine_Body,
-                Beer_Type,
-                Beer_Style,
-                Beer_Body,
-                URL,
-                Scrape_Date
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record["Retailer_Name"],
-                record["Brand"],
-                record["Spirit_Type"],
-                record["Spirit_Style"],
-                record["Complete_Name"],
-                record["ABV"],
-                record["Taste"],
-                record["Country"],
-                record["State"],
-                record["Food_Pairings"],
-                record["Website_Notes"],
-                record["Price"],
-                record["Rating"],
-                record["Review_Count"],
-                record["Wine_Type"],
-                record["Region"],
-                record["Appellation"],
-                record["Wine_Varietal"],
-                record["Wine_Style"],
-                record["Wine_Body"],
-                record["Beer_Type"],
-                record["Beer_Style"],
-                record["Beer_Body"],
-                record["URL"],
-                record["Scrape_Date"],
-            ),
-        )
-        conn.commit()
-    except Exception as e:
-        logging.error(f"SQL error for {record.get('URL')}: {e}")
-        print(f"SQL ERROR for {record.get('URL')}: {e}")
 
-# ---------------------------------------------------------
-# Normalization Helpers
-# ---------------------------------------------------------
+    cursor.execute("""
+        INSERT INTO dbo.alcohol_data (
+            Retailer_Name,
+            Brand,
+            Spirit_Type,
+            Spirit_Style,
+            Complete_Name,
+            Price,
+            Rating,
+            Review_Count,
+            Wine_Type,
+            Region,
+            Appellation,
+            Wine_Varietal,
+            Wine_Style,
+            Wine_Body,
+            Country,
+            State,
+            Food_Pairings,
+            Website_Notes,
+            ABV,
+            Taste,
+            URL,
+            Scrape_Date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        record.get("Retailer_Name"),
+        record.get("Brand"),
+        record.get("Spirit_Type"),
+        record.get("Spirit_Style"),
+        record.get("Complete_Name"),
+        record.get("Price"),
+        record.get("Rating"),
+        record.get("Review_Count"),
+        record.get("Wine_Type"),
+        record.get("Region"),
+        record.get("Appellation"),
+        record.get("Wine_Varietal"),
+        record.get("Wine_Style"),
+        record.get("Wine_Body"),
+        record.get("Country"),
+        record.get("State"),
+        record.get("Food_Pairings"),
+        record.get("Website_Notes"),
+        record.get("ABV"),
+        record.get("Taste"),
+        record.get("URL"),
+        record.get("Scrape_Date"),
+    ))
 
-def normalize_abv(text):
-    """
-    Convert '13.5%' → 13
-    """
-    if not text:
-        return None
-    import re
-    m = re.search(r"([\d\.]+)", text)
-    if m:
-        return safe_int(round(float(m.group(1))))
-    return None
-
-def normalize_price(text):
-    """
-    Convert '$16.99' → 16.99
-    """
-    if not text:
-        return None
-    import re
-    m = re.search(r"([\d,]+\.\d{2})", text)
-    if m:
-        return safe_float(m.group(1).replace(",", ""))
-    return None
+    conn.commit()
